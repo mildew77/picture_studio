@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Picture Studio</title>
+    <link rel="icon" type="image/png" href="favicon.png" />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header>
+      <div class="brand"><span class="brand-mark">P</span><span>Picture Studio</span></div>
+      <div class="header-actions">
+        <label class="button secondary">Replace base PNG<input id="base-upload" type="file" accept="image/png,image/jpeg" hidden /></label>
+        <button id="download" class="button primary">Export PNG</button>
+      </div>
+    </header>
+    <main>
+      <aside class="tools">
+        <section>
+          <p class="eyebrow">Build</p>
+          <button id="add-text" class="add-button"><span>＋</span> Add text</button>
+          <label class="add-button"><span>＋</span> Add picture<input id="image-upload" type="file" accept="image/*" hidden /></label>
+        </section>
+        <section class="layers-section">
+          <div class="section-title"><p class="eyebrow">Layers</p><button id="delete-layer" title="Delete selected layer">⌫</button></div>
+          <div id="layers" class="layers"><p class="empty">Select an item on the canvas.</p></div>
+        </section>
+        <section class="tips">
+          <p class="eyebrow">Quick tip</p>
+          <p>Click a highlighted area on the flyer to replace its existing text or picture. You can still drag a replacement after adding it.</p>
+        </section>
+      </aside>
+      <section class="workspace">
+      <div class="workspace-top"><span>Canvas</span><span id="canvas-size">1402 × 1122 px</span></div>
+        <p id="local-warning" class="local-warning" hidden>To export, open this app through the local server: <code>node server.js</code>, then visit <code>http://localhost:4173</code>.</p>
+        <div class="canvas-wrap"><div id="canvas" class="canvas" aria-label="Editable flyer canvas"><div id="hotspots" class="hotspots"></div></div></div>
+      </section>
+      <aside class="inspector">
+        <div id="empty-inspector" class="empty-state"><div class="empty-icon">✦</div><h2>Style your design</h2><p>Choose a text or picture layer to change its look.</p></div>
+        <form id="inspector-form" hidden>
+          <div class="inspector-heading"><p class="eyebrow">Properties</p><h2 id="layer-name">Text</h2></div>
+          <div id="text-controls">
+            <label>Text<textarea id="text-content" rows="4"></textarea></label>
+            <div class="field-grid">
+              <label>Font<select id="font-family"><option value="Arial, sans-serif">Arial</option><option value="Georgia, serif">Georgia</option><option value="'Trebuchet MS', sans-serif">Trebuchet</option><option value="'Courier New', monospace">Courier New</option></select></label>
+              <label>Size<input id="font-size" type="number" min="8" max="240" /></label>
+            </div>
+            <div class="field-grid">
+              <label>Color<input id="text-color" type="color" /></label>
+              <label>Weight<select id="font-weight"><option value="400">Regular</option><option value="500">Medium</option><option value="700">Bold</option><option value="900">Black</option></select></label>
+            </div>
+            <div class="field-grid"><label>Background<input id="text-background" type="color" /></label><label class="check-label"><input id="background-none" type="checkbox" /> No background</label></div>
+            <label>Alignment<select id="text-align"><option value="left">Left</option><option value="center">Center</option><option value="right">Right</option></select></label>
+          </div>
+          <div id="image-controls" hidden><p class="image-note">Drag the corners of the picture to resize it.</p></div>
+          <hr />
+          <div class="field-grid">
+            <label>Opacity <output id="opacity-value"></output><input id="opacity" type="range" min="0" max="100" /></label>
+            <label id="radius-field">Corners<input id="border-radius" type="number" min="0" max="200" /></label>
+          </div>
+          <div class="field-grid">
+            <label>Width<input id="layer-width" type="number" min="20" /></label>
+            <label>Height<input id="layer-height" type="number" min="20" /></label>
+          </div>
+          <button id="duplicate" type="button" class="button secondary full">Duplicate layer</button>
+        </form>
+      </aside>
+    </main>
+    <template id="text-template"><div class="element text-element" data-type="text"><div class="content"></div><div class="resize-handle"></div></div></template>
+    <template id="image-template"><div class="element image-element" data-type="image"><img alt="Added layer" /><div class="resize-handle"></div></div></template>
+    <script src="app.js"></script>
+  </body>
+</html>
