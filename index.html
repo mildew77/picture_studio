@@ -22,6 +22,11 @@
           <button id="add-text" class="add-button"><span>＋</span> Add text</button>
           <label class="add-button"><span>＋</span> Add picture<input id="image-upload" type="file" accept="image/*" hidden /></label>
         </section>
+        <section class="sections-section">
+          <p class="eyebrow">Layout sections</p>
+          <div id="sections" class="sections"></div>
+          <button id="reset-layout" class="reset-layout" type="button">Reset section positions</button>
+        </section>
         <section class="layers-section">
           <div class="section-title"><p class="eyebrow">Layers</p><button id="delete-layer" title="Delete selected layer">⌫</button></div>
           <div id="layers" class="layers"><p class="empty">Select an item on the canvas.</p></div>
@@ -32,26 +37,34 @@
         </section>
       </aside>
       <section class="workspace">
-      <div class="workspace-top"><span>Canvas</span><span id="canvas-size">1402 × 1122 px</span></div>
+        <div class="workspace-top"><span>Canvas</span><span id="canvas-size">1080 × 1350 px</span></div>
         <p id="local-warning" class="local-warning" hidden>To export, open this app through the local server: <code>node server.js</code>, then visit <code>http://localhost:4173</code>.</p>
         <div class="canvas-wrap"><div id="canvas" class="canvas" aria-label="Editable flyer canvas"><div id="hotspots" class="hotspots"></div></div></div>
       </section>
       <aside class="inspector">
         <div id="empty-inspector" class="empty-state"><div class="empty-icon">✦</div><h2>Style your design</h2><p>Choose a text or picture layer to change its look.</p></div>
+        <div id="original-inspector" class="original-inspector" hidden><div class="inspector-heading"><p class="eyebrow">Properties</p><h2>Original layer</h2></div><p>This controls the stack level used when this original item is removed.</p><label>Z-index<input id="original-z-index" type="number" min="0" max="99" /></label></div>
         <form id="inspector-form" hidden>
           <div class="inspector-heading"><p class="eyebrow">Properties</p><h2 id="layer-name">Text</h2></div>
           <div id="text-controls">
-            <label>Text<textarea id="text-content" rows="4"></textarea></label>
+            <label>Text</label>
+            <div class="rich-toolbar" aria-label="Selected text formatting">
+              <button id="selection-bold" type="button" title="Bold selected text"><strong>B</strong></button>
+              <button id="selection-italic" type="button" title="Italicize selected text"><em>I</em></button>
+              <select id="selection-font" title="Font for selected text"><option value="">Selected font</option><option value="Proxima Nova">Proxima Nova Regular</option><option value="Proxima Nova Medium">Proxima Nova Medium</option><option value="Proxima Nova Semibold">Proxima Nova Semibold</option><option value="Proxima Nova Condensed">Proxima Nova Condensed</option><option value="Proxima Nova A">Proxima Nova A</option><option value="Arial">Arial</option><option value="Georgia">Georgia</option><option value="Trebuchet MS">Trebuchet</option><option value="Courier New">Courier New</option></select>
+              <input id="selection-color" type="color" title="Color for selected text" />
+            </div>
+            <div id="text-content" class="rich-text-editor" contenteditable="true" role="textbox" aria-multiline="true"></div>
             <div class="field-grid">
-              <label>Font<select id="font-family"><option value="Arial, sans-serif">Arial</option><option value="Georgia, serif">Georgia</option><option value="'Trebuchet MS', sans-serif">Trebuchet</option><option value="'Courier New', monospace">Courier New</option></select></label>
+              <label>Font<select id="font-family"><option value="'Proxima Nova', Arial, sans-serif">Proxima Nova</option><option value="'Proxima Nova Condensed', 'Arial Narrow', sans-serif">Proxima Nova Condensed</option><option value="'Proxima Nova A', 'Proxima Nova', Arial, sans-serif">Proxima Nova A</option><option value="Arial, sans-serif">Arial</option><option value="Georgia, serif">Georgia</option><option value="'Trebuchet MS', sans-serif">Trebuchet</option><option value="'Courier New', monospace">Courier New</option></select></label>
               <label>Size<input id="font-size" type="number" min="8" max="240" /></label>
             </div>
             <div class="field-grid">
               <label>Color<input id="text-color" type="color" /></label>
-              <label>Weight<select id="font-weight"><option value="400">Regular</option><option value="500">Medium</option><option value="700">Bold</option><option value="900">Black</option></select></label>
+              <label>Weight<select id="font-weight"><option value="400">Regular</option><option value="500">Medium</option><option value="600">Semibold</option><option value="700">Bold</option><option value="900">Black</option></select></label>
             </div>
-            <div class="field-grid"><label>Background<input id="text-background" type="color" /></label><label class="check-label"><input id="background-none" type="checkbox" /> No background</label></div>
-            <label>Alignment<select id="text-align"><option value="left">Left</option><option value="center">Center</option><option value="right">Right</option></select></label>
+            <div class="field-grid"><label>Background color<input id="text-background" type="color" /></label><label class="check-label"><input id="background-none" type="checkbox" /> Transparent background</label></div>
+            <div class="field-grid"><label>Alignment<select id="text-align"><option value="left">Left</option><option value="center">Center</option><option value="right">Right</option></select></label><label>Line height<input id="line-height" type="number" min="0.5" max="3" step="0.05" /></label></div>
           </div>
           <div id="image-controls" hidden><p class="image-note">Drag the corners of the picture to resize it.</p></div>
           <hr />
@@ -61,8 +74,9 @@
           </div>
           <div class="field-grid">
             <label>Width<input id="layer-width" type="number" min="20" /></label>
-            <label>Height<input id="layer-height" type="number" min="20" /></label>
+            <label>Height<input id="layer-height" type="number" min="1" /></label>
           </div>
+          <label>Z-index<input id="layer-z-index" type="number" min="0" max="99" /></label>
           <button id="duplicate" type="button" class="button secondary full">Duplicate layer</button>
         </form>
       </aside>
