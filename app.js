@@ -157,6 +157,10 @@ function addText() {
     weight: "700",
     align: "left",
     lineHeight: 1.17,
+    paddingTop: 0,
+    paddingRight: 0,
+    paddingBottom: 0,
+    paddingLeft: 0,
     opacity: 100,
     radius: 0,
     zIndex: 4,
@@ -471,6 +475,8 @@ function updateElement(item) {
       color: item.color,
       textAlign: item.align,
       lineHeight: item.lineHeight ?? 1.17,
+      padding: `${item.paddingTop ?? item.padding ?? 0}px ${item.paddingRight ?? item.padding ?? 0}px ${item.paddingBottom ?? item.padding ?? 0}px ${item.paddingLeft ?? item.padding ?? 0}px`,
+      boxSizing: "border-box",
     });
   } else el.querySelector("img").src = item.src;
   renderLayers();
@@ -541,6 +547,10 @@ function renderInspector() {
     $("#font-weight").value = selected.weight;
     $("#text-align").value = selected.align;
     $("#line-height").value = selected.lineHeight ?? 1.17;
+    $("#padding-top").value = selected.paddingTop ?? selected.padding ?? 0;
+    $("#padding-right").value = selected.paddingRight ?? selected.padding ?? 0;
+    $("#padding-bottom").value = selected.paddingBottom ?? selected.padding ?? 0;
+    $("#padding-left").value = selected.paddingLeft ?? selected.padding ?? 0;
   }
   $("#layer-z-index").value = selected.zIndex ?? 4;
   $("#opacity").value = selected.opacity;
@@ -620,6 +630,10 @@ function updateSelected(key, value) {
   ["#font-weight", "weight"],
   ["#text-align", "align"],
   ["#line-height", "lineHeight"],
+  ["#padding-top", "paddingTop"],
+  ["#padding-right", "paddingRight"],
+  ["#padding-bottom", "paddingBottom"],
+  ["#padding-left", "paddingLeft"],
   ["#opacity", "opacity"],
   ["#border-radius", "radius"],
   ["#layer-width", "width"],
@@ -629,7 +643,7 @@ function updateSelected(key, value) {
   $(sel).addEventListener("input", (e) => {
     let v = e.target.value;
     if (
-      ["size", "lineHeight", "opacity", "radius", "width", "height", "zIndex"].includes(key)
+      ["size", "lineHeight", "paddingTop", "paddingRight", "paddingBottom", "paddingLeft", "opacity", "radius", "width", "height", "zIndex"].includes(key)
     )
       v = Number(v);
     updateSelected(key, v);
@@ -798,6 +812,18 @@ canvas.onclick = (e) => {
   if (e.target === canvas) select(null);
 };
 $("#download").onclick = exportPng;
+const tipSlides = [...document.querySelectorAll(".tip-slide")];
+const tipDots = [...document.querySelectorAll(".tip-dots button")];
+let activeTip = 0;
+function showTip(index) {
+  activeTip = (index + tipSlides.length) % tipSlides.length;
+  tipSlides.forEach((slide, slideIndex) => (slide.hidden = slideIndex !== activeTip));
+  tipDots.forEach((dot, dotIndex) => dot.setAttribute("aria-selected", String(dotIndex === activeTip)));
+  $("#tip-count").textContent = `${activeTip + 1} / ${tipSlides.length}`;
+}
+$("#tip-prev").onclick = () => showTip(activeTip - 1);
+$("#tip-next").onclick = () => showTip(activeTip + 1);
+tipDots.forEach((dot, index) => (dot.onclick = () => showTip(index)));
 function wrapLines(ctx, text, width) {
   return text.split("\n").flatMap((paragraph) => {
     const words = paragraph.split(/\s+/),
@@ -812,6 +838,128 @@ function wrapLines(ctx, text, width) {
     });
     if (line) lines.push(line);
     return lines;
+  });
+}
+function richTextRuns(item) {
+  const template = document.createElement("template");
+  template.innerHTML = item.html || escapeHtml(item.text).replace(/\n/g, "<br>");
+  const base = {
+    font: item.font,
+    size: item.size * SCALE_X,
+    weight: item.weight,
+    italic: false,
+    color: item.color,
+  };
+  const runs = [];
+  const add = (text, style) => {
+    if (text) runs.push({ text, style: { ...style } });
+  };
+  const walk = (node, inherited) => {
+    if (node.nodeType === Node.TEXT_NODE) {
+      add(node.nodeValue, inherited);
+      return;
+    }
+    if (node.nodeType !== Node.ELEMENT_NODE) return;
+    if (node.tagName === "BR") {
+      add("\n", inherited);
+      return;
+    }
+    const tag = node.tagName;
+    const style = { ...inherited };
+    if (tag === "B" || tag === "STRONG") style.weight = "700";
+    if (tag === "I" || tag === "EM") style.italic = true;
+    if (tag === "FONT") {
+      style.font = node.getAttribute("face") || style.font;
+      style.color = node.getAttribute("color") || style.color;
+    }
+    if (node.style.fontFamily) style.font = node.style.fontFamily;
+    if (node.style.fontWeight) style.weight = node.style.fontWeight;
+    if (node.style.fontStyle) style.italic = node.style.fontStyle === "italic";
+    if (node.style.color) style.color = node.style.color;
+    [...node.childNodes].forEach((child) => walk(child, style));
+    if (["DIV", "P"].includes(tag)) add("\n", inherited);
+  };
+  [...template.content.childNodes].forEach((node) => walk(node, base));
+  return runs;
+}
+function canvasFont(style) {
+  return `${style.italic ? "italic " : ""}${style.weight} ${style.size}px ${style.font}`;
+}
+async function drawTextPreview(ctx, item, x, y, width, height) {
+  const content = document.querySelector(`#${CSS.escape(item.id)} .content`);
+  if (!content) return false;
+  const legacyPadding = item.padding ?? 0;
+  const paddingTop = (item.paddingTop ?? legacyPadding) * SCALE_Y;
+  const paddingRight = (item.paddingRight ?? legacyPadding) * SCALE_X;
+  const paddingBottom = (item.paddingBottom ?? legacyPadding) * SCALE_Y;
+  const paddingLeft = (item.paddingLeft ?? legacyPadding) * SCALE_X;
+  const renderHeight = Math.max(height, OUTPUT_H - y);
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${renderHeight}"><foreignObject width="100%" height="100%"><div xmlns="http://www.w3.org/1999/xhtml" style="box-sizing:border-box;width:100%;height:${height}px;overflow:visible;white-space:pre-wrap;overflow-wrap:break-word;padding:${paddingTop}px ${paddingRight}px ${paddingBottom}px ${paddingLeft}px;font-family:${item.font};font-size:${item.size * SCALE_X}px;font-weight:${item.weight};color:${item.color};text-align:${item.align};line-height:${item.lineHeight ?? 1.17}">${content.innerHTML}</div></foreignObject></svg>`;
+  try {
+    const image = new Image();
+    image.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+    await image.decode();
+    ctx.drawImage(image, x, y, width, renderHeight);
+    return true;
+  } catch (error) {
+    console.warn("Rich text export fell back to canvas text rendering.", error);
+    return false;
+  }
+}
+function drawRichText(ctx, item, x, y, width) {
+  const lines = [], current = [];
+  let currentWidth = 0, pendingSpace = null;
+  const finishLine = () => {
+    lines.push({ runs: [...current], width: currentWidth });
+    current.length = 0;
+    currentWidth = 0;
+    pendingSpace = null;
+  };
+  for (const run of richTextRuns(item)) {
+    for (const token of run.text.split(/(\s+)/)) {
+      if (!token) continue;
+      if (token.includes("\n")) {
+        token.split("\n").forEach((part, index, parts) => {
+          if (part) {
+            ctx.font = canvasFont(run.style);
+            const wordWidth = ctx.measureText(part).width;
+            if (current.length && currentWidth + wordWidth > width) finishLine();
+            current.push({ text: part, style: run.style, width: wordWidth });
+            currentWidth += wordWidth;
+          }
+          if (index < parts.length - 1) finishLine();
+        });
+      } else if (/^\s+$/.test(token)) {
+        pendingSpace = run.style;
+      } else {
+        ctx.font = canvasFont(run.style);
+        const wordWidth = ctx.measureText(token).width;
+        let spaceWidth = 0;
+        if (pendingSpace && current.length) {
+          ctx.font = canvasFont(pendingSpace);
+          spaceWidth = ctx.measureText(" ").width;
+        }
+        if (current.length && currentWidth + spaceWidth + wordWidth > width) {
+          finishLine();
+          spaceWidth = 0;
+        }
+        if (spaceWidth) current.push({ text: " ", style: pendingSpace, width: spaceWidth });
+        current.push({ text: token, style: run.style, width: wordWidth });
+        currentWidth += spaceWidth + wordWidth;
+        pendingSpace = null;
+      }
+    }
+  }
+  if (current.length || !lines.length) finishLine();
+  const lineHeight = item.size * SCALE_X * (item.lineHeight ?? 1.17);
+  lines.forEach((line, lineIndex) => {
+    let cursor = item.align === "center" ? x + (width - line.width) / 2 : item.align === "right" ? x + width - line.width : x;
+    line.runs.forEach((run) => {
+      ctx.font = canvasFont(run.style);
+      ctx.fillStyle = run.style.color;
+      ctx.fillText(run.text, cursor, y + lineIndex * lineHeight);
+      cursor += run.width;
+    });
   });
 }
 function paintMask(ctx, item) {
@@ -876,19 +1024,17 @@ async function exportPng() {
           ctx.fillStyle = it.background;
           ctx.fillRect(x, y, w, h);
         }
-        ctx.font = `${it.weight} ${it.size * SCALE_X}px ${it.font}`;
-        ctx.fillStyle = it.color;
-        ctx.textAlign = it.align;
-        ctx.textBaseline = "top";
-        const anchor =
-          it.align === "left" ? x : it.align === "center" ? x + w / 2 : x + w;
-        wrapLines(ctx, it.text, w).forEach((line, n) =>
-          ctx.fillText(
-            line,
-            anchor,
-            y + n * it.size * SCALE_X * (it.lineHeight ?? 1.17),
-          ),
-        );
+        const drawnFromPreview = await drawTextPreview(ctx, it, x, y, w, h);
+        if (!drawnFromPreview) {
+          ctx.textBaseline = "top";
+          const legacyPadding = it.padding ?? 0;
+          const paddingTop = (it.paddingTop ?? legacyPadding) * SCALE_Y;
+          const paddingRight = (it.paddingRight ?? legacyPadding) * SCALE_X;
+          const paddingBottom = (it.paddingBottom ?? legacyPadding) * SCALE_Y;
+          const paddingLeft = (it.paddingLeft ?? legacyPadding) * SCALE_X;
+          const textWidth = Math.max(1, w - paddingLeft - paddingRight);
+          drawRichText(ctx, it, x + paddingLeft, y + paddingTop, textWidth);
+        }
       }
       ctx.restore();
     }
