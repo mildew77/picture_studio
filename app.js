@@ -12,6 +12,7 @@ let items = [],
   selected = null,
   id = 0,
   baseSrc = "picture-studio-base.png";
+let exportCanvas = null;
 let replacementTarget = null;
 const CANVAS_W = 648,
   CANVAS_H = 810,
@@ -19,6 +20,8 @@ const CANVAS_W = 648,
   OUTPUT_H = 1350;
 const SCALE_X = OUTPUT_W / CANVAS_W,
   SCALE_Y = OUTPUT_H / CANVAS_H;
+const SECTION_MASK_TOP = 100,
+  SECTION_MASK_HEIGHT = CANVAS_H - SECTION_MASK_TOP;
 const sectionsEl = document.querySelector("#sections");
 const sections = [
   {
@@ -47,7 +50,7 @@ const sections = [
     id: "footer",
     name: "Footer & disclosures",
     sourceY: 609,
-    height: 80,
+    height: CANVAS_H - 609,
     zIndex: 1,
   },
 ];
@@ -87,9 +90,9 @@ function renderSectionSlices() {
   mask.className = "section-mask";
   Object.assign(mask.style, {
     left: "0px",
-    top: "100px",
+    top: SECTION_MASK_TOP + "px",
     width: CANVAS_W + "px",
-    height: "620px",
+    height: SECTION_MASK_HEIGHT + "px",
   });
   canvas.append(mask);
   sections.forEach((section) => {
@@ -355,7 +358,7 @@ const templateZones = [
     section: "footer",
   },
   {
-    label: "SBRG broker logo",
+    label: "broker logo",
     type: "image",
     x: 413,
     y: 575,
@@ -440,7 +443,7 @@ function activateZone(zone, zoneIndex) {
     section: zone.section,
   };
   add(layer);
-  setTimeout(() => $("textarea#text-content").focus(), 0);
+  setTimeout(() => $("textarea#text-content")?.focus(), 20);
 }
 function render(item) {
   const tpl = $(`#${item.type}-template`).content.firstElementChild.cloneNode(
@@ -655,12 +658,42 @@ $("#text-background").addEventListener("input", (e) => {
   $("#background-none").checked = false;
   updateSelected("background", e.target.value);
 });
-$("#text-content").addEventListener("input", (e) => {
+function saveTextContent(editor) {
   if (selected?.type !== "text") return;
-  selected.html = e.currentTarget.innerHTML;
-  selected.text = e.currentTarget.innerText;
+  selected.html = editor.innerHTML;
+  selected.text = editor.innerText;
   selected.name = selected.text.split("\n")[0].slice(0, 28) || "Text";
   renderLayers();
+}
+$("#text-content").addEventListener("input", (e) => {
+  saveTextContent(e.currentTarget);
+});
+function sanitizeInlineHtml(html) {
+  const template = document.createElement("template");
+  template.innerHTML = html;
+  template.content
+    .querySelectorAll("script,style,link,meta,iframe,object,embed")
+    .forEach((node) => node.remove());
+  template.content.querySelectorAll("*").forEach((node) => {
+    [...node.attributes].forEach((attribute) => {
+      const name = attribute.name.toLowerCase();
+      const value = attribute.value.trim().toLowerCase();
+      if (name.startsWith("on") || (name === "href" || name === "src") && value.startsWith("javascript:")) {
+        node.removeAttribute(attribute.name);
+      }
+    });
+  });
+  return template.innerHTML;
+}
+$("#text-content").addEventListener("paste", (event) => {
+  const clipboard = event.clipboardData;
+  const html = clipboard.getData("text/html");
+  const plainText = clipboard.getData("text/plain");
+  const pastedHtml = html || (/^\s*</.test(plainText) ? plainText : "");
+  if (!pastedHtml || !/<[a-z][\s\S]*>/i.test(pastedHtml)) return;
+  event.preventDefault();
+  document.execCommand("insertHTML", false, sanitizeInlineHtml(pastedHtml));
+  event.currentTarget.dispatchEvent(new Event("input", { bubbles: true }));
 });
 function formatSelectedText(command, value = null) {
   if (selected?.type !== "text") return;
@@ -680,6 +713,18 @@ $("#selection-font").addEventListener("change", (event) => {
 $("#selection-color").addEventListener("input", (event) =>
   formatSelectedText("foreColor", event.target.value),
 );
+$("#clear-text-html").addEventListener("click", () => {
+  if (selected?.type !== "text") return;
+  const editor = $("#text-content");
+  const text = editor.innerText;
+  editor.replaceChildren(document.createTextNode(text));
+  editor.dispatchEvent(new Event("input", { bubbles: true }));
+});
+$("#apply-text").addEventListener("click", () => {
+  if (selected?.type !== "text") return;
+  saveTextContent($("#text-content"));
+  updateElement(selected);
+});
 $("#background-none").addEventListener("change", (e) => {
   if (!selected) return;
   updateSelected(
@@ -812,13 +857,18 @@ canvas.onclick = (e) => {
   if (e.target === canvas) select(null);
 };
 $("#download").onclick = exportPng;
-const tipSlides = [...document.querySelectorAll(".tip-slide")];
-const tipDots = [...document.querySelectorAll(".tip-dots button")];
+const quickTipsCarousel = $("#quick-tips-carousel");
+const tipSlides = [...quickTipsCarousel.querySelectorAll("[data-tip-slide]")];
+const tipDots = [...quickTipsCarousel.parentElement.querySelectorAll("[data-tip-dot]")];
 let activeTip = 0;
 function showTip(index) {
   activeTip = (index + tipSlides.length) % tipSlides.length;
   tipSlides.forEach((slide, slideIndex) => (slide.hidden = slideIndex !== activeTip));
-  tipDots.forEach((dot, dotIndex) => dot.setAttribute("aria-selected", String(dotIndex === activeTip)));
+  tipDots.forEach((dot, dotIndex) => {
+    const active = dotIndex === activeTip;
+    dot.setAttribute("aria-selected", String(active));
+    dot.style.background = active ? "#1767c7" : "#c9d2df";
+  });
   $("#tip-count").textContent = `${activeTip + 1} / ${tipSlides.length}`;
 }
 $("#tip-prev").onclick = () => showTip(activeTip - 1);
@@ -894,8 +944,10 @@ async function drawTextPreview(ctx, item, x, y, width, height) {
   const paddingBottom = (item.paddingBottom ?? legacyPadding) * SCALE_Y;
   const paddingLeft = (item.paddingLeft ?? legacyPadding) * SCALE_X;
   const renderHeight = Math.max(height, OUTPUT_H - y);
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${renderHeight}"><foreignObject width="100%" height="100%"><div xmlns="http://www.w3.org/1999/xhtml" style="box-sizing:border-box;width:100%;height:${height}px;overflow:visible;white-space:pre-wrap;overflow-wrap:break-word;padding:${paddingTop}px ${paddingRight}px ${paddingBottom}px ${paddingLeft}px;font-family:${item.font};font-size:${item.size * SCALE_X}px;font-weight:${item.weight};color:${item.color};text-align:${item.align};line-height:${item.lineHeight ?? 1.17}">${content.innerHTML}</div></foreignObject></svg>`;
-  try {
+  let svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${renderHeight}"><foreignObject width="100%" height="100%"><div xmlns="http://www.w3.org/1999/xhtml" style="box-sizing:border-box;width:100%;height:${height}px;overflow:visible;white-space:pre-wrap;overflow-wrap:break-word;padding:${paddingTop}px ${paddingRight}px ${paddingBottom}px ${paddingLeft}px;font-family:${item.font};font-size:${item.size * SCALE_X}px;font-weight:${item.weight};color:${item.color};text-align:${item.align};line-height:${item.lineHeight ?? 1.17}">${content.innerHTML}</div></foreignObject></svg>`;
+console.log(svg);
+svg = svg.replaceAll("&nbsp;", "&#160;");
+try {
     const image = new Image();
     image.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
     await image.decode();
@@ -987,9 +1039,14 @@ async function exportPng() {
     await bg.decode();
     ctx.drawImage(bg, 0, 0, out.width, out.height);
     ctx.fillStyle = "#fff";
-    ctx.fillRect(0, 100 * SCALE_Y, OUTPUT_W, 620 * SCALE_Y);
-    sections.forEach((section) =>
-      ctx.drawImage(
+    ctx.fillRect(
+      0,
+      SECTION_MASK_TOP * SCALE_Y,
+      OUTPUT_W,
+      SECTION_MASK_HEIGHT * SCALE_Y,
+    );
+sections.forEach((section) =>{ 
+	ctx.drawImage(
         bg,
         0,
         section.sourceY * SCALE_Y,
@@ -999,8 +1056,8 @@ async function exportPng() {
         sectionY(section.id) * SCALE_Y,
         OUTPUT_W,
         section.height * SCALE_Y,
-      ),
-    );
+      )
+    });
     erasedOriginals.forEach((it) => paintMask(ctx, it));
     for (const it of items) {
       ctx.save();
@@ -1038,10 +1095,7 @@ async function exportPng() {
       }
       ctx.restore();
     }
-    const a = document.createElement("a");
-    a.download = "picture-studio-export.png";
-    a.href = out.toDataURL("image/png");
-    a.click();
+    showExportModal(out);
   } catch (error) {
     $("#local-warning").hidden = false;
     $("#local-warning").textContent =
@@ -1049,6 +1103,33 @@ async function exportPng() {
     console.warn("PNG export needs the local server.", error);
   }
 }
+
+function closeExportModal() {
+  $("#export-modal").hidden = true;
+  $("#download").focus();
+}
+function showExportModal(out) {
+  exportCanvas = out;
+  out.id = "export-preview-canvas";
+  $("#export-preview").replaceChildren(out);
+  $("#export-modal").hidden = false;
+  $("#download-rendered").focus();
+}
+$("#close-export").onclick = closeExportModal;
+$("#cancel-export").onclick = closeExportModal;
+$("#export-modal").addEventListener("click", (event) => {
+  if (event.target.matches("[data-close-export]")) closeExportModal();
+});
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && !$("#export-modal").hidden) closeExportModal();
+});
+$("#download-rendered").onclick = () => {
+  if (!exportCanvas) return;
+  const link = document.createElement("a");
+  link.download = "picture-studio-export.png";
+  link.href = exportCanvas.toDataURL("image/png");
+  link.click();
+};
 
 
 renderSections();
