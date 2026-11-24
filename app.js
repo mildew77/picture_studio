@@ -14,6 +14,9 @@ let items = [],
   baseSrc = "picture-studio-base.png";
 let exportCanvas = null;
 let replacementTarget = null;
+// A creative AI result is a finished flyer, not a new base image to be
+// reconstructed with the editor's original section slices and layers.
+let creativeResultActive = false;
 const CANVAS_W = 648,
   CANVAS_H = 810,
   OUTPUT_W = 1080,
@@ -86,6 +89,7 @@ function renderSectionSlices() {
   document
     .querySelectorAll(".section-mask,.section-slice")
     .forEach((el) => el.remove());
+  if (creativeResultActive) return;
   const mask = document.createElement("div");
   mask.className = "section-mask";
   Object.assign(mask.style, {
@@ -769,6 +773,8 @@ baseUpload.onchange = (e) => {
     const r = new FileReader();
     r.onload = () => {
       baseSrc = r.result;
+      creativeResultActive = false;
+      canvas.classList.remove("ai-creative-result");
       canvas.style.backgroundImage = `url(${baseSrc})`;
       resetSectionPositions();
       renderSectionSlices();
@@ -1038,6 +1044,12 @@ async function exportPng() {
     bg.src = baseSrc;
     await bg.decode();
     ctx.drawImage(bg, 0, 0, out.width, out.height);
+    // A creative AI update is already a complete, flattened flyer. Drawing
+    // the editor's old slices on top would introduce seams and crop its footer.
+    if (creativeResultActive) {
+      showExportModal(out);
+      return;
+    }
     ctx.fillStyle = "#fff";
     ctx.fillRect(
       0,
@@ -1130,6 +1142,181 @@ $("#download-rendered").onclick = () => {
   link.href = exportCanvas.toDataURL("image/png");
   link.click();
 };
+
+let pendingAiUpdate = null;
+function aiImageLayers() {
+  return items.filter((item) => item.type === "image");
+}
+function renderAiSafeTargets() {
+  const select = $("#ai-safe-target");
+  const imageLayers = aiImageLayers();
+  select.replaceChildren();
+  imageLayers.forEach((item) => {
+    const option = document.createElement("option");
+    option.value = item.id;
+    option.textContent = item.name;
+    option.selected = item.id === selected?.id;
+    select.append(option);
+  });
+  return imageLayers.length > 0;
+}
+function updateAiMode() {
+  const safe = document.querySelector('input[name="ai-mode"]:checked').value === "safe";
+  $("#ai-safe-target-field").hidden = !safe;
+  if (safe && !renderAiSafeTargets()) {
+    $("#ai-status").textContent = "Add or select a picture layer before using Safe photo edit.";
+  } else if (!safe) {
+    $("#ai-status").textContent = "";
+  }
+}
+function openAiModal() {
+  if (!exportCanvas) return;
+  if (!window.PICTURE_STUDIO_AI_ENDPOINT) {
+    $("#local-warning").hidden = false;
+    $("#local-warning").textContent =
+      "AI updates are available after the Lambda API has been deployed. Local previews do not send images to OpenAI.";
+    return;
+  }
+  $("#ai-status").textContent = "";
+  updateAiMode();
+  $("#ai-modal").hidden = false;
+  $("#ai-prompt").focus();
+}
+function closeAiModal() {
+  $("#ai-modal").hidden = true;
+  $("#submit-ai").disabled = false;
+  $("#submit-ai").textContent = "Generate update";
+  $("#update-with-ai").focus();
+}
+function canvasPngBase64(canvasElement) {
+  return canvasElement.toDataURL("image/png").split(",")[1];
+}
+async function dataUrlForImage(src) {
+  if (src.startsWith("data:image/")) return src;
+  const response = await fetch(src);
+  if (!response.ok) throw new Error("Could not load the selected picture for AI editing.");
+  const blob = await response.blob();
+  return await new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(new Error("Could not prepare the selected picture for AI editing."));
+    reader.readAsDataURL(blob);
+  });
+}
+const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+async function waitForAiJob(endpoint, jobId) {
+  for (let attempt = 0; attempt < 75; attempt += 1) {
+    await delay(2000);
+    const response = await fetch(`${endpoint}/${encodeURIComponent(jobId)}`);
+    const job = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(job.error || "Could not read the AI update status.");
+    if (job.status === "completed") return job;
+    if (job.status === "failed") throw new Error(job.error || "The AI update could not be completed.");
+    $("#ai-status").textContent = "AI is updating your flyer. This can take about a minute…";
+  }
+  throw new Error("The AI update is still running. Please try again in a moment.");
+}
+async function submitAiUpdate() {
+  const prompt = $("#ai-prompt").value.trim();
+  const endpoint = window.PICTURE_STUDIO_AI_ENDPOINT;
+  if (!prompt) {
+    $("#ai-status").textContent = "Enter a description of the change you want.";
+    $("#ai-prompt").focus();
+    return;
+  }
+  if (!endpoint || !exportCanvas) return;
+  const mode = document.querySelector('input[name="ai-mode"]:checked').value;
+  let imageDataUrl;
+  let safeTargetId = null;
+  if (mode === "safe") {
+    safeTargetId = $("#ai-safe-target").value;
+    const target = aiImageLayers().find((item) => item.id === safeTargetId);
+    if (!target) {
+      $("#ai-status").textContent = "Choose a picture layer to edit safely.";
+      return;
+    }
+    try {
+      imageDataUrl = await dataUrlForImage(target.src);
+    } catch (error) {
+      $("#ai-status").textContent = error.message;
+      return;
+    }
+  } else imageDataUrl = exportCanvas.toDataURL("image/png");
+  const submit = $("#submit-ai");
+  submit.disabled = true;
+  submit.textContent = "Generating…";
+  $("#ai-status").textContent = "Sending the rendered PNG to the AI service…";
+  try {
+    const [prefix, imageBase64] = imageDataUrl.split(",");
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ prompt, mode, imageBase64, imageMimeType: prefix.match(/^data:([^;]+)/)?.[1] || "image/png" }),
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload.error || "The AI update could not be queued.");
+    if (!payload.jobId) throw new Error("The AI service did not return a job ID.");
+    $("#ai-status").textContent = "AI is updating your flyer. This can take about a minute…";
+    const result = await waitForAiJob(endpoint, payload.jobId);
+    if (!result.imageBase64) throw new Error("The AI service did not return an image.");
+    pendingAiUpdate = {
+      mode,
+      safeTargetId,
+      resultDataUrl: `data:${result.mimeType || "image/png"};base64,${result.imageBase64}`,
+      originalDataUrl: imageDataUrl,
+    };
+    $("#ai-original-preview").src = imageDataUrl;
+    $("#ai-result-preview").src = pendingAiUpdate.resultDataUrl;
+    $("#ai-result-title").textContent = mode === "safe" ? "Review the photo update" : "Review the flyer redesign";
+    $("#ai-modal").hidden = true;
+    $("#ai-result-modal").hidden = false;
+  } catch (error) {
+    console.error("AI image update failed", error);
+    $("#ai-status").textContent = error.message || "The AI update could not be completed.";
+  } finally {
+    submit.disabled = false;
+    submit.textContent = "Generate update";
+  }
+}
+$("#update-with-ai").onclick = openAiModal;
+document.querySelectorAll('input[name="ai-mode"]').forEach((input) => input.addEventListener("change", updateAiMode));
+$("#close-ai").onclick = closeAiModal;
+$("#cancel-ai").onclick = closeAiModal;
+$("#ai-modal").addEventListener("click", (event) => {
+  if (event.target.matches("[data-close-ai]")) closeAiModal();
+});
+$("#submit-ai").onclick = submitAiUpdate;
+$("#keep-ai-original").onclick = () => {
+  pendingAiUpdate = null;
+  $("#ai-result-modal").hidden = true;
+  $("#export-modal").hidden = false;
+  $("#update-with-ai").focus();
+};
+$("#retry-ai").onclick = () => {
+  $("#ai-result-modal").hidden = true;
+  openAiModal();
+};
+$("#apply-ai-result").onclick = async () => {
+  if (!pendingAiUpdate) return;
+  if (pendingAiUpdate.mode === "safe") {
+    const target = items.find((item) => item.id === pendingAiUpdate.safeTargetId);
+    if (!target) return;
+    target.src = pendingAiUpdate.resultDataUrl;
+    updateElement(target);
+  } else {
+    baseSrc = pendingAiUpdate.resultDataUrl;
+    creativeResultActive = true;
+    canvas.classList.add("ai-creative-result");
+    canvas.style.backgroundImage = `url("${baseSrc}")`;
+    renderSectionSlices();
+  }
+  pendingAiUpdate = null;
+  $("#ai-result-modal").hidden = true;
+  await exportPng();
+};
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && !$("#ai-modal").hidden) closeAiModal();
+});
 
 
 renderSections();

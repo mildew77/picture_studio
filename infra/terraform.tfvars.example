@@ -1,0 +1,6 @@
+# Use a valid hostname: underscores are not allowed in CloudFront aliases or ACM certificates.
+aws_region      = "us-east-1"
+bucket_name     = "picture-studio-image-builder-REPLACE-WITH-UNIQUE-SUFFIX"
+site_domain     = "picture-studio.marshall.mortgage"
+route53_zone_id = "ZREPLACEWITHYOURHOSTEDZONEID"
+openai_api_key_secret_arn = "arn:aws:secretsmanager:us-east-1:123456789012:secret:picture-studio/openai-api-key-REPLACE"
